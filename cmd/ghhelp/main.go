@@ -1,6 +1,6 @@
 // Command ghhelp is a small GitHub Actions helper CLI.
 //
-//	ghhelp findJobFailures <jobUrl>
+//	ghhelp findJobFailures <jobUrl>   (or the shortcut: ghhelp jf <jobUrl>)
 //
 // The GitHub token is read from the GH_TOKEN or GITHUB_TOKEN environment
 // variable (or pass -token).
@@ -30,9 +30,9 @@ func main() {
 	}
 
 	switch args[0] {
-	case "findJobFailures":
+	case "findJobFailures", "jf":
 		if len(args) < 2 {
-			fmt.Fprintln(os.Stderr, "usage: ghhelp findJobFailures <jobUrl>")
+			fmt.Fprintln(os.Stderr, "usage: ghhelp findJobFailures|jf <jobUrl>")
 			os.Exit(2)
 		}
 		if *token == "" {
@@ -64,6 +64,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "commands:")
 	fmt.Fprintln(os.Stderr, "  findJobFailures <jobUrl>   print failing-test sections from a job log")
+	fmt.Fprintln(os.Stderr, "  jf <jobUrl>                shortcut for findJobFailures")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "flags:")
 	flag.PrintDefaults()

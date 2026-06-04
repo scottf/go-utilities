@@ -42,6 +42,7 @@ A `null` (or empty) entry in `jdk_qualifiers` means the bare artifact with no
 
 ```
 ghhelp findJobFailures <jobUrl>
+ghhelp jf <jobUrl>               # shortcut for findJobFailures
 ```
 
 Downloads the log for a GitHub Actions job (identified by its `github.com` job
@@ -52,6 +53,10 @@ or `$GITHUB_TOKEN` (or pass `-token`).
 export GH_TOKEN=ghp_...
 ghhelp findJobFailures "https://github.com/nats-io/nats.java/actions/runs/25391554069/job/74467105487?pr=1564"
 ```
+
+Quote the URL. It works unquoted in most shells, but the `?` and any `&` in the
+query string are shell metacharacters, so quoting keeps it safe across shells
+and for URLs with multiple query parameters.
 
 ## Build
 
