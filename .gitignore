@@ -1,0 +1,51 @@
+# Claude Code #
+################
+.claude/
+
+# Compiled binaries #
+#####################
+*.com
+*.class
+*.dll
+*.exe
+*.o
+*.so
+/bin
+/sona
+/ghhelp
+
+# Packages #
+############
+*.7z
+*.dmg
+*.gz
+*.iso
+*.rar
+*.tar
+*.zip
+
+# Logs and databases #
+######################
+*.log
+*.csv
+
+# OS generated files #
+######################
+.DS_Store*
+ehthumbs.db
+Icon?
+Thumbs.db
+
+# Editor Files #
+################
+*~
+*.swp
+.vscode/
+
+# IntelliJ
+.idea/
+out/
+*.ipr
+*.iws
+*.iml
+atlassian-ide-plugin.xml
