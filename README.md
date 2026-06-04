@@ -65,3 +65,33 @@ go build -o bin/sona   ./cmd/sona
 go build -o bin/ghhelp ./cmd/ghhelp
 go test ./...
 ```
+
+## Release
+
+Releases are built by the GitHub Actions workflow in
+`.github/workflows/release.yml`, which fires when a GitHub release is published.
+It cross-compiles `sona` and `ghhelp` for linux/amd64, linux/arm64,
+darwin/amd64, darwin/arm64, and windows/amd64, attaches the binaries to the
+release, and uses `CHANGELOG.md` as the release notes.
+
+To cut a release:
+
+1. Add a section for the new version at the top of `CHANGELOG.md` and push it to
+   `main`. The workflow reads the changelog from the tagged commit, so this has
+   to be in place before the tag.
+2. Create the release (this creates the tag from `main` and triggers the build):
+
+   ```
+   gh release create v0.1.0 --title "v0.1.0" --notes-file CHANGELOG.md
+   ```
+
+3. Watch it and confirm the assets:
+
+   ```
+   gh run watch
+   gh release view v0.1.0
+   ```
+
+Bump the version per release (`v0.2.0`, `v0.3.0`, …) with a matching
+`CHANGELOG.md` section. The binaries don't embed a version string, so the git
+tag and changelog are the source of truth.
