@@ -12,13 +12,14 @@ Projects are read from `~/.sonatype-checker.json` (a JSON array of
 `CheckerParams`; the same format used by the Java side).
 
 ```
-sona              # show the project menu, pick one (number, name, or 'a' for all)
-sona 9            # run the 9th project in the list
-sona FLINK        # run the project named FLINK (case-insensitive)
-sona all          # run every project
-sona -f other.json FLINK
-sona -debug FLINK # print each URL before checking
+sona                       # print help, then the config location and project list
+sona FLINK                 # check the project named FLINK (case-insensitive)
+sona -c other.json FLINK   # use a different config file
+sona -d FLINK              # debug: print each URL before checking
 ```
+
+Command shape: `sona [-d] [-c path-to-config] project-name`. The `-d` and `-c`
+flags may appear in any order; the project name is the lone non-flag argument.
 
 Config entry shape:
 

@@ -1,60 +1,112 @@
 // Command sona is a CLI front-end for the Sonatype checker. Run it with no
-// arguments to pick a project from an interactive list, or pass a project name
-// / number / "all" to run non-interactively.
+// project name to print the help, the config file location, and the list of
+// configured projects; pass a project name to check that one project.
 //
-//	sona              # show the menu and pick one
-//	sona 3            # run the 3rd project in the list
-//	sona FLINK        # run the project named FLINK (case-insensitive)
-//	sona all          # run every project
-//	sona -f path.json # use a different config file
+//	sona                       # help + config path + project list
+//	sona FLINK                 # check the project named FLINK (case-insensitive)
+//	sona -d FLINK              # same, but print each URL as it is checked
+//	sona -c other.json FLINK   # use a different config file
+//
+// Command shape: sona [-d] [-c path-to-config] project-name
+// The -d and -c flags may appear in any order; the project name is the lone
+// non-flag argument.
 package main
 
 import (
-	"bufio"
-	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"go-utilities/internal/sonatype"
 )
 
+// options holds the parsed command line.
+type options struct {
+	debug      bool
+	configPath string
+	project    string
+	help       bool
+}
+
 func main() {
-	configPath := flag.String("f", defaultConfigPath(), "path to the sonatype-checker JSON config")
-	debug := flag.Bool("debug", false, "print each URL before it is checked")
-	flag.Parse()
+	opts, err := parseArgs(os.Args[1:])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		printUsageLine(os.Stderr)
+		os.Exit(2)
+	}
 
-	sonatype.Debug = *debug
+	sonatype.Debug = opts.debug
 
-	params, err := sonatype.LoadParams(*configPath)
+	if opts.help {
+		printHelp(os.Stdout)
+		return
+	}
+
+	absPath := absConfigPath(opts.configPath)
+
+	params, err := sonatype.LoadParams(opts.configPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 	if len(params) == 0 {
-		fmt.Fprintf(os.Stderr, "no projects found in %s\n", *configPath)
+		fmt.Fprintf(os.Stderr, "no projects found in %s\n", absPath)
 		os.Exit(1)
 	}
 
-	selection := strings.Join(flag.Args(), " ")
-	if selection == "" {
-		selection = promptForSelection(params)
+	// No project name: show the help, then the config location and projects.
+	if opts.project == "" {
+		printHelp(os.Stdout)
+		fmt.Fprintln(os.Stdout)
+		listProjects(absPath, params)
+		return
 	}
 
-	chosen, err := resolveSelection(params, selection)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
-	}
-
-	for _, p := range chosen {
-		if err := sonatype.Check(p); err != nil {
-			fmt.Fprintf(os.Stderr, "error checking %s: %v\n", p.Project, err)
-			os.Exit(1)
+	// A name: run that project (case-insensitive match).
+	for _, p := range params {
+		if strings.EqualFold(p.Project, opts.project) {
+			if err := sonatype.Check(p); err != nil {
+				fmt.Fprintf(os.Stderr, "error checking %s: %v\n", p.Project, err)
+				os.Exit(1)
+			}
+			return
 		}
 	}
+	fmt.Fprintf(os.Stderr, "no project matching %q (run 'sona' to list projects)\n", opts.project)
+	os.Exit(1)
+}
+
+// parseArgs reads the command line. -d and -c may appear in any order; -c
+// consumes the following argument as its path. The single non-flag argument is
+// the project name.
+func parseArgs(args []string) (options, error) {
+	opts := options{configPath: defaultConfigPath()}
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "-h" || arg == "-help" || arg == "--help":
+			opts.help = true
+		case arg == "-d":
+			opts.debug = true
+		case arg == "-c":
+			if i+1 >= len(args) {
+				return opts, fmt.Errorf("-c requires a path-to-config argument")
+			}
+			i++
+			opts.configPath = args[i]
+		case strings.HasPrefix(arg, "-"):
+			return opts, fmt.Errorf("unknown flag %q", arg)
+		default:
+			if opts.project != "" {
+				return opts, fmt.Errorf("unexpected argument %q; the project name must be a single token", arg)
+			}
+			opts.project = arg
+		}
+	}
+	return opts, nil
 }
 
 func defaultConfigPath() string {
@@ -65,43 +117,60 @@ func defaultConfigPath() string {
 	return filepath.Join(home, ".sonatype-checker.json")
 }
 
-// promptForSelection prints the numbered menu and reads a choice from stdin.
-func promptForSelection(params []sonatype.CheckerParams) string {
-	fmt.Println("Projects:")
-	for i, p := range params {
-		fmt.Printf("  %2d) %-16s %s:%s\n", i+1, p.Project, p.GroupID, p.Component)
+// absConfigPath resolves the config path to an absolute path for display,
+// falling back to the given path if resolution fails.
+func absConfigPath(p string) string {
+	if abs, err := filepath.Abs(p); err == nil {
+		return abs
 	}
-	fmt.Printf("  %2s) %s\n", "a", "all")
-	fmt.Print("Choose a project (number, name, or 'a' for all): ")
-
-	reader := bufio.NewReader(os.Stdin)
-	line, _ := reader.ReadString('\n')
-	return strings.TrimSpace(line)
+	return p
 }
 
-// resolveSelection turns a selection string into the list of projects to run.
-func resolveSelection(params []sonatype.CheckerParams, selection string) ([]sonatype.CheckerParams, error) {
-	sel := strings.TrimSpace(selection)
-	if sel == "" {
-		return nil, fmt.Errorf("no selection made")
-	}
-	if sel == "a" || strings.EqualFold(sel, "all") {
-		return params, nil
-	}
+// listProjects prints the config location followed by every configured project.
+func listProjects(configPath string, params []sonatype.CheckerParams) {
+	fmt.Printf("Config: %s\n\n", configPath)
+	fmt.Println("Projects:")
 
-	// Numeric selection (1-based).
-	if n, err := strconv.Atoi(sel); err == nil {
-		if n < 1 || n > len(params) {
-			return nil, fmt.Errorf("choice %d out of range (1-%d)", n, len(params))
-		}
-		return []sonatype.CheckerParams{params[n-1]}, nil
-	}
-
-	// Name selection (case-insensitive).
+	width := 0
 	for _, p := range params {
-		if strings.EqualFold(p.Project, sel) {
-			return []sonatype.CheckerParams{p}, nil
+		if len(p.Project) > width {
+			width = len(p.Project)
 		}
 	}
-	return nil, fmt.Errorf("no project matching %q", sel)
+	for _, p := range params {
+		fmt.Printf("  %-*s  %s:%s\n", width, p.Project, p.GroupID, p.Component)
+	}
+}
+
+func printUsageLine(out io.Writer) {
+	fmt.Fprintln(out, "usage: sona [-d] [-c path-to-config] project-name")
+}
+
+// printHelp writes the thorough help message to out.
+func printHelp(out io.Writer) {
+	fmt.Fprintf(out, `sona — check when Maven artifacts were last published to Sonatype.
+
+For each configured project, sona fetches release metadata from repo1.maven.org
+and snapshot metadata from central.sonatype.com, expands each artifact across
+its configured JDK qualifiers, and prints when each one was last updated
+(timestamps are RFC3339 UTC).
+
+Usage:
+  sona [-d] [-c path-to-config] project-name
+
+  Run with no project name to print this help followed by the config file
+  location and the list of configured projects. The -d and -c flags may appear
+  in any order; the project name is the lone non-flag argument.
+
+Flags:
+  -d           debug: print each URL before it is checked
+  -c <path>    read projects from an alternate config file
+               (default %s)
+
+Config file:
+  A JSON array of projects with snake_case keys: project, group_id, component,
+  jdk_qualifiers, release_versions, snapshot_versions. A null entry in
+  jdk_qualifiers means the bare artifact (no -jdkNN suffix); e.g.
+  [null,"17","21","25"] checks component, component-jdk17, -jdk21, and -jdk25.
+`, defaultConfigPath())
 }
