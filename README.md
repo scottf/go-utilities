@@ -42,16 +42,22 @@ A `null` (or empty) entry in `jdk_qualifiers` means the bare artifact with no
 
 ```
 ghhelp findJobFailures <jobUrl>
-ghhelp jf <jobUrl>               # shortcut for findJobFailures
+ghhelp fjf <jobUrl>              # shortcut for findJobFailures
+fjf <jobUrl>                    # standalone command, same as 'ghhelp fjf'
 ```
 
 Downloads the log for a GitHub Actions job (identified by its `github.com` job
-URL) and prints the failing-test sections. The token is read from `$GH_TOKEN`
-or `$GITHUB_TOKEN` (or pass `-token`).
+URL) and prints a summary of the failing tests, **grouped by failure reason**
+(the assertion/exception message) with a count, most-common first. This collapses
+a long log — e.g. 12 failures across ~200 lines of stack traces — into a few
+lines. Pass `-v` to print the full failure blocks (with stack traces) instead.
+
+The token is read from `$GH_TOKEN` or `$GITHUB_TOKEN` (or pass `-token`).
 
 ```
 export GH_TOKEN=ghp_...
-ghhelp findJobFailures "https://github.com/nats-io/nats.java/actions/runs/25391554069/job/74467105487?pr=1564"
+fjf "https://github.com/nats-io/nats.java/actions/runs/25391554069/job/74467105487?pr=1564"
+fjf -v "https://github.com/..."   # full stack traces instead of the summary
 ```
 
 Quote the URL. It works unquoted in most shells, but the `?` and any `&` in the
@@ -63,6 +69,7 @@ and for URLs with multiple query parameters.
 ```
 go build -o bin/sona   ./cmd/sona
 go build -o bin/ghhelp ./cmd/ghhelp
+go build -o bin/fjf    ./cmd/fjf
 go test ./...
 ```
 

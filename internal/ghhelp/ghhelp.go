@@ -1,13 +1,15 @@
 // Package ghhelp is a small GitHub Actions helper. For now it has a single
 // function, FindJobFailures, which fetches the log for a job (identified by its
-// github.com job URL) and prints the failing-test sections.
+// github.com job URL) and prints a grouped summary of the failing tests.
 package ghhelp
 
 import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -15,14 +17,23 @@ import (
 // prepends to each job-log line.
 var timestampPrefix = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z `)
 
+// Failure is one failing test parsed from a job log.
+type Failure struct {
+	Test   string   // e.g. "RequestTests > testRequestErrors()"
+	Reason string   // first message line after the "() FAILED" marker
+	Body   []string // the full failure block (header + following lines), cleaned
+}
+
 // FindJobFailures parses a github.com job URL, downloads that job's log, and
-// prints the failing-test sections to stdout.
+// prints the failing tests. By default it prints a grouped summary (failures
+// combined by reason, with counts); when verbose is true it prints the full
+// failure blocks including stack traces.
 //
 // Accepted URL shapes (matching the Java version):
 //
 //	https://github.com/synadia-io/nats.java.v3/actions/runs/22879139630/job/66377777516
 //	https://github.com/nats-io/nats.java/actions/runs/25391554069/job/74467105487?pr=1564
-func FindJobFailures(token, jobURL string) error {
+func FindJobFailures(token, jobURL string, verbose bool) error {
 	org, repo, jobID, err := parseJobURL(jobURL)
 	if err != nil {
 		return err
@@ -31,7 +42,12 @@ func FindJobFailures(token, jobURL string) error {
 	if err != nil {
 		return err
 	}
-	processJobLog(log)
+	failures := parseFailures(log)
+	if verbose {
+		printFull(os.Stdout, failures)
+	} else {
+		summarize(os.Stdout, failures)
+	}
 	return nil
 }
 
@@ -113,22 +129,85 @@ func getJobLog(token, org, repo, jobID string) (string, error) {
 	return string(body), nil
 }
 
-// processJobLog prints the lines of each failing test, from the "() FAILED"
-// marker until the next "() STARTED" or test-summary line.
-func processJobLog(log string) {
-	printing := false
+// parseFailures walks the log and collects one Failure per "() FAILED" marker,
+// gathering the lines up to the next "() STARTED" or test-summary line.
+func parseFailures(log string) []Failure {
+	var failures []Failure
+	var cur *Failure
+	flush := func() {
+		if cur != nil {
+			failures = append(failures, *cur)
+			cur = nil
+		}
+	}
+
 	for _, line := range strings.Split(log, "\n") {
 		clean := timestampPrefix.ReplaceAllString(line, "")
 		switch {
-		case strings.Contains(line, "() FAILED"):
-			printing = true
-			fmt.Println(clean)
-		case printing:
-			if strings.Contains(line, "() STARTED") || strings.Contains(line, " tests completed, ") {
-				printing = false
+		case strings.Contains(clean, "() FAILED"):
+			flush()
+			cur = &Failure{
+				Test: strings.TrimSpace(strings.TrimSuffix(clean, " FAILED")),
+				Body: []string{clean},
+			}
+		case cur != nil:
+			if strings.Contains(clean, "() STARTED") || strings.Contains(clean, " tests completed, ") {
+				flush()
 			} else {
-				fmt.Println(clean)
+				cur.Body = append(cur.Body, clean)
+				if cur.Reason == "" && strings.TrimSpace(clean) != "" {
+					cur.Reason = strings.TrimSpace(clean)
+				}
 			}
 		}
+	}
+	flush()
+	return failures
+}
+
+// summarize prints failing tests grouped by reason, most-common first, with the
+// tests that share each reason listed beneath it.
+func summarize(w io.Writer, failures []Failure) {
+	if len(failures) == 0 {
+		fmt.Fprintln(w, "No failing tests found.")
+		return
+	}
+
+	// Group test names by reason, remembering first-seen order for ties.
+	groups := map[string][]string{}
+	var order []string
+	for _, f := range failures {
+		if _, seen := groups[f.Reason]; !seen {
+			order = append(order, f.Reason)
+		}
+		groups[f.Reason] = append(groups[f.Reason], f.Test)
+	}
+
+	// Most-shared reasons first, then alphabetically for stability.
+	sort.SliceStable(order, func(i, j int) bool {
+		ci, cj := len(groups[order[i]]), len(groups[order[j]])
+		if ci != cj {
+			return ci > cj
+		}
+		return order[i] < order[j]
+	})
+
+	fmt.Fprintf(w, "%d failing test(s), %d distinct failure(s):\n", len(failures), len(order))
+	for _, reason := range order {
+		tests := groups[reason]
+		fmt.Fprintf(w, "\n[%dx] %s\n", len(tests), reason)
+		for _, t := range tests {
+			fmt.Fprintf(w, "      %s\n", t)
+		}
+	}
+}
+
+// printFull prints each failure block in full, including stack traces.
+func printFull(w io.Writer, failures []Failure) {
+	for _, f := range failures {
+		for _, line := range f.Body {
+			fmt.Fprintln(w, line)
+		}
+		fmt.Fprintln(w)
 	}
 }
