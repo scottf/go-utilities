@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"regexp"
-	"sort"
 	"strings"
 )
 
@@ -25,9 +24,9 @@ type Failure struct {
 }
 
 // FindJobFailures parses a github.com job URL, downloads that job's log, and
-// prints the failing tests. By default it prints a grouped summary (failures
-// combined by reason, with counts); when verbose is true it prints the full
-// failure blocks including stack traces.
+// prints the failing tests. By default it prints one stack trace per distinct
+// failing test, collapsing repeats of the same test into an "(xN)" count; when
+// verbose is true it prints every failure block, including duplicates.
 //
 // Accepted URL shapes (matching the Java version):
 //
@@ -136,6 +135,10 @@ func parseFailures(log string) []Failure {
 	var cur *Failure
 	flush := func() {
 		if cur != nil {
+			// Drop trailing blank lines so blocks separate cleanly when printed.
+			for len(cur.Body) > 0 && strings.TrimSpace(cur.Body[len(cur.Body)-1]) == "" {
+				cur.Body = cur.Body[:len(cur.Body)-1]
+			}
 			failures = append(failures, *cur)
 			cur = nil
 		}
@@ -165,39 +168,40 @@ func parseFailures(log string) []Failure {
 	return failures
 }
 
-// summarize prints failing tests grouped by reason, most-common first, with the
-// tests that share each reason listed beneath it.
+// summarize prints one block per distinct failing test, in first-seen order.
+// Different tests are never combined; only repeats of the same test (e.g. the
+// same test failing across several matrix builds in one log) are collapsed, in
+// which case the first stack trace is shown with an "(xN)" count — repeats of a
+// test are expected to be identical.
 func summarize(w io.Writer, failures []Failure) {
 	if len(failures) == 0 {
 		fmt.Fprintln(w, "No failing tests found.")
 		return
 	}
 
-	// Group test names by reason, remembering first-seen order for ties.
-	groups := map[string][]string{}
+	// Collapse repeats of the same test, keeping the first occurrence and a
+	// count, in first-seen order.
+	first := map[string]Failure{}
+	counts := map[string]int{}
 	var order []string
 	for _, f := range failures {
-		if _, seen := groups[f.Reason]; !seen {
-			order = append(order, f.Reason)
+		if _, seen := first[f.Test]; !seen {
+			first[f.Test] = f
+			order = append(order, f.Test)
 		}
-		groups[f.Reason] = append(groups[f.Reason], f.Test)
+		counts[f.Test]++
 	}
 
-	// Most-shared reasons first, then alphabetically for stability.
-	sort.SliceStable(order, func(i, j int) bool {
-		ci, cj := len(groups[order[i]]), len(groups[order[j]])
-		if ci != cj {
-			return ci > cj
+	fmt.Fprintf(w, "%d failing test(s), %d distinct:\n", len(failures), len(order))
+	for _, test := range order {
+		f := first[test]
+		header := f.Body[0]
+		if counts[test] > 1 {
+			header += fmt.Sprintf("   (x%d)", counts[test])
 		}
-		return order[i] < order[j]
-	})
-
-	fmt.Fprintf(w, "%d failing test(s), %d distinct failure(s):\n", len(failures), len(order))
-	for _, reason := range order {
-		tests := groups[reason]
-		fmt.Fprintf(w, "\n[%dx] %s\n", len(tests), reason)
-		for _, t := range tests {
-			fmt.Fprintf(w, "      %s\n", t)
+		fmt.Fprintf(w, "\n%s\n", header)
+		for _, line := range f.Body[1:] {
+			fmt.Fprintln(w, line)
 		}
 	}
 }

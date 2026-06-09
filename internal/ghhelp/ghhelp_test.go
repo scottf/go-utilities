@@ -94,22 +94,60 @@ func TestSummarize(t *testing.T) {
 	summarize(&b, parseFailures(sampleLog))
 	out := b.String()
 
-	if !strings.Contains(out, "3 failing test(s), 2 distinct failure(s):") {
-		t.Errorf("missing header line; got:\n%s", out)
+	// Three distinct tests, none combined — even though testOne and testTwo
+	// share the same reason ("boom"), they are different tests.
+	if !strings.Contains(out, "3 failing test(s), 3 distinct:") {
+		t.Errorf("missing/wrong header line; got:\n%s", out)
 	}
-	// The shared reason (2 tests) must be grouped under one [2x] heading listing
-	// both tests, and appear before the single-test group.
-	shared := strings.Index(out, "[2x] org.opentest4j.AssertionFailedError: boom")
-	single := strings.Index(out, "[1x] java.lang.NullPointerException: npe")
-	if shared == -1 || single == -1 {
-		t.Fatalf("missing grouped headings; got:\n%s", out)
-	}
-	if shared > single {
-		t.Errorf("most-shared reason should come first; got:\n%s", out)
-	}
-	for _, test := range []string{"AlphaTests > testOne()", "AlphaTests > testTwo()", "BetaTests > testThree()"} {
-		if !strings.Contains(out, test) {
-			t.Errorf("output missing test %q; got:\n%s", test, out)
+	for _, header := range []string{
+		"AlphaTests > testOne() FAILED",
+		"AlphaTests > testTwo() FAILED",
+		"BetaTests > testThree() FAILED",
+	} {
+		if !strings.Contains(out, header) {
+			t.Errorf("output missing failure header %q; got:\n%s", header, out)
 		}
+	}
+	// The stack trace must be shown (not just the reason line).
+	if !strings.Contains(out, "at app//Alpha.java:10") {
+		t.Errorf("output missing stack trace; got:\n%s", out)
+	}
+	// No (xN) count when nothing repeats.
+	if strings.Contains(out, "(x") {
+		t.Errorf("unexpected duplicate count for non-repeating tests; got:\n%s", out)
+	}
+}
+
+// dupLog has the same test (AlphaTests.testOne) failing twice with an identical
+// stack trace, plus one other test.
+const dupLog = `2026-06-06T10:00:00.000Z AlphaTests > testOne() FAILED
+2026-06-06T10:00:00.001Z     org.opentest4j.AssertionFailedError: boom
+2026-06-06T10:00:00.002Z         at app//Alpha.java:10
+2026-06-06T10:00:01.000Z AlphaTests > testOne() STARTED
+2026-06-06T10:00:02.000Z AlphaTests > testOne() FAILED
+2026-06-06T10:00:02.001Z     org.opentest4j.AssertionFailedError: boom
+2026-06-06T10:00:02.002Z         at app//Alpha.java:10
+2026-06-06T10:00:03.000Z BetaTests > testThree() FAILED
+2026-06-06T10:00:03.001Z     java.lang.NullPointerException: npe
+2026-06-06T10:00:04.000Z 10 tests completed, 3 failed`
+
+func TestSummarizeCollapsesRepeats(t *testing.T) {
+	var b strings.Builder
+	summarize(&b, parseFailures(dupLog))
+	out := b.String()
+
+	if !strings.Contains(out, "3 failing test(s), 2 distinct:") {
+		t.Errorf("missing/wrong header line; got:\n%s", out)
+	}
+	// The repeated test is shown once with a count.
+	if !strings.Contains(out, "AlphaTests > testOne() FAILED   (x2)") {
+		t.Errorf("repeated test not collapsed with count; got:\n%s", out)
+	}
+	if strings.Count(out, "at app//Alpha.java:10") != 1 {
+		t.Errorf("repeated stack trace should appear exactly once; got:\n%s", out)
+	}
+	// The non-repeating test has no count.
+	if !strings.Contains(out, "BetaTests > testThree() FAILED\n") {
+		t.Errorf("missing non-repeating test header; got:\n%s", out)
 	}
 }

@@ -47,10 +47,11 @@ fjf <jobUrl>                    # standalone command, same as 'ghhelp fjf'
 ```
 
 Downloads the log for a GitHub Actions job (identified by its `github.com` job
-URL) and prints a summary of the failing tests, **grouped by failure reason**
-(the assertion/exception message) with a count, most-common first. This collapses
-a long log — e.g. 12 failures across ~200 lines of stack traces — into a few
-lines. Pass `-v` to print the full failure blocks (with stack traces) instead.
+URL) and prints the failing tests — one stack trace per **distinct test**.
+Different tests are never combined; only repeats of the *same* test (e.g. the
+same test failing across several matrix builds in one log) are collapsed into a
+single block with an `(xN)` count, since those repeats are identical. Pass `-v`
+to print every failure block, including duplicates.
 
 The token is read from `$GH_TOKEN` or `$GITHUB_TOKEN` (or pass `-token`).
 
