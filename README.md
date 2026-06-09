@@ -65,6 +65,21 @@ Quote the URL. It works unquoted in most shells, but the `?` and any `&` in the
 query string are shell metacharacters, so quoting keeps it safe across shells
 and for URLs with multiple query parameters.
 
+## fjf — findJobFailures shortcut
+
+`fjf` is a standalone command that does exactly what `ghhelp fjf` (i.e.
+`ghhelp findJobFailures`) does, so you can skip the subcommand:
+
+```
+fjf <jobUrl>          # summary: one stack trace per distinct failing test
+fjf -v <jobUrl>       # full output: every failure block, including duplicates
+fjf -token tok <url>  # pass a token explicitly instead of via the environment
+```
+
+Command shape: `fjf [-v] [-token tok] <jobUrl>`. Output, token resolution
+(`$GH_TOKEN` / `$GITHUB_TOKEN` / `-token`), and URL quoting are identical to
+[`ghhelp`](#ghhelp--github-actions-helper) above.
+
 ## Build
 
 ```
@@ -78,7 +93,7 @@ go test ./...
 
 Releases are built by the GitHub Actions workflow in
 `.github/workflows/release.yml`, which fires when a GitHub release is published.
-It cross-compiles `sona` and `ghhelp` for linux/amd64, linux/arm64,
+It cross-compiles `sona`, `ghhelp`, and `fjf` for linux/amd64, linux/arm64,
 darwin/amd64, darwin/arm64, and windows/amd64, attaches the binaries to the
 release, and uses `CHANGELOG.md` as the release notes.
 
